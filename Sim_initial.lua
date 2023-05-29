@@ -5,6 +5,8 @@
 -- script:  lua
 -- input: mouse
 
+-- +X right, +Y forward, +Z up
+
 m=math
 sin=m.sin
 cos=m.cos
@@ -29,6 +31,8 @@ end
 function tm(n)
 	return tan(n/1000)
 end
+
+-- some of these functions from https://github.com/Jumper-44/Stormworks_Delaunay-Triangulation
 local function Vec3(x,y,z) return
     {x=x or 0;y=y or 0;z=z or 0;
     add =   function(a,b) return Vec3(a.x+b.x, a.y+b.y, a.z+b.z) end;
@@ -41,6 +45,7 @@ local function Vec3(x,y,z) return
     unpack = function(a, ...) return a.x, a.y, a.z, ... end}
 end
 local Clamp = function(x,s,l) return x < s and s or x > l and l or x end
+clamp=Clamp -- alternative capitalisation
 function gn(...)
 	o={}
 	i2=...
@@ -80,11 +85,10 @@ local MatrixMul = function(m1,m2)
     end
     return r
 end
-clamp=Clamp
 
 FOV=tan(rad(30//2)) -- initial vertical FOV
 
-function cSS(x,y) -- convert pixel coord to a fractiom of FOV
+function cSS(x,y) -- convert pixel coord to a fraction of FOV
 			return hw+hh*x/FOV,hh-hh*y/FOV
 end
 
@@ -104,7 +108,7 @@ end
 
 -- "ml" stands for "make local" 
 
-function ml(v,l) -- expensive ml function
+function ml(v,l) -- expensive ml function. here for fallback
 			l=l or 1 -- default: local to camera
 			local x1,y1,z1=v[1].x-l*cam.x,v[1].y-l*cam.y,v[1].z-l*cam.z
 			local x2,y2,z2=v[2].x-l*cam.x,v[2].y-l*cam.y,v[2].z-l*cam.z
@@ -121,7 +125,7 @@ function ml(v,l) -- expensive ml function
 			local m3=MatrixMul(mroll2,m3)
 			return m1,m2,m3
 end
-function mlR(v,l) -- expensive reverse relative ml function
+function mlR(v,l) -- expensive reverse ml function
 			l=l or 0 -- default: not local to camera
 			local x1,y1,z1=v[1].x-l*cam.x,v[1].y-l*cam.y,v[1].z-l*cam.z
 			local x2,y2,z2=v[2].x-l*cam.x,v[2].y-l*cam.y,v[2].z-l*cam.z
@@ -138,7 +142,7 @@ function mlR(v,l) -- expensive reverse relative ml function
 			local m3=MatrixMul(mhdg,m3)
 			return m1,m2,m3
 end
-function ml2(v,l) -- more efficient ml funcion
+function ml2(v,l) -- much more efficient ml funcion using precalculated vectors
 			l=l or 1 -- default: local to camera
 			local x1,y1,z1=v[1].x-l*cam.x,v[1].y-l*cam.y,v[1].z-l*cam.z
 			local x2,y2,z2=v[2].x-l*cam.x,v[2].y-l*cam.y,v[2].z-l*cam.z
@@ -163,10 +167,10 @@ function clone(tab) -- clone a table
 	return {table.unpack(tab)}
 end
 
--- create a frame of rotation from position information
+-- create and store frame of rotation from position information
 function jumble(roll,rpitch,rhdg,dframe)
-	local check=frames[dframe]
-	if not check or (check.roll~=roll or check.rpitch~=rpitch or check.rhdg~=rhdg) then
+	local check=frames[dframe] -- check if it has already been calculated before
+	if not check or (check.roll~=roll or check.rpitch~=rpitch or check.rhdg~=rhdg) then -- check whether the matrix needs to be computed, possibly again
 		mroll={{cos(-roll),0,sin(-roll)},{0,1,0},{-sin(-roll),0,cos(-roll)}}
 		mpitch={{1,0,0},{0,cos(rpitch),sin(rpitch)},{0,-sin(rpitch),cos(rpitch)}}
 		mhdg={{cos(-rhdg),sin(-rhdg),0},{-sin(-rhdg),cos(-rhdg),0},{0,0,1}}
@@ -181,8 +185,8 @@ function jumble(roll,rpitch,rhdg,dframe)
 		mroll2=clone(mroll2),mpitch2=clone(mpitch2),mhdg2=clone(mhdg2),
 		vecX=vecX,vecY=vecY,vecZ=vecZ,
 		roll=roll,rpitch=rpitch,rhdg=rhdg
-		}
-	elseif check then
+		} -- clone probably leaks memory. hope GC catches it.
+	elseif check then -- if no computing required, just take from table if it's in the table
 		frame=dframe
 		mroll=check.mroll
 		mpitch=check.mpitch
@@ -194,7 +198,7 @@ function jumble(roll,rpitch,rhdg,dframe)
 	end
 end
 
-function TIC()
+function TIC() -- game function run each tick
 	stick.x,stick.y=stick.x*.95,stick.y*.95
 	if btn(2) then stick.x=stick.x-.5 end
 	if btn(3) then stick.x=stick.x+.5 end
@@ -202,7 +206,7 @@ function TIC()
 	if btn(1) then stick.y=stick.y-.5 end
 	if btn(4) then jet.r=jet.r+.005 end
 	if btn(5) then jet.r=jet.r-.005 end
-	stick.x,stick.y=clamp(stick.x,-10,10),clamp(stick.y,-10,10)
+	stick.x,stick.y=clamp(stick.x,-10,10),clamp(stick.y,-10,10) -- stick is the flight stick. TBD:pedals,throttle, currently it's just used to walk camera around
 	
 	cam.h=cam.h+stick.x/600
 	cam.x=cam.x+sin(cam.h)*stick.y/60
@@ -213,7 +217,8 @@ function TIC()
 	t=t+1 -- tick since start
 	
 	tris={} -- triangles directly to drawing
-	-- draw a model
+	
+	-- draw model
 	model=models_parsed[1]
 	for ii,vv in ipairs(model["f"]) do
 				local p1,p2,p3,n1,n2,n3=vv[1],vv[3],vv[5],vv[2],vv[4],vv[6]
@@ -1213,6 +1218,7 @@ f 235//302 234//302 232//302
 ]]
 }
 
+-- split functions derived from https://stackoverflow.com/a/7615129
 function splitstring (inputstr, sep)
     if not sep then
        sep = string.char(10)
@@ -1225,7 +1231,7 @@ function splitstring (inputstr, sep)
 end
 
 function splitnumber(str,rule)
-				local rule=rule or "%S+"
+    local rule=rule or "%S+"
     local t = {}
     for n in str:gmatch(rule) do
         table.insert(t, tonumber(n))
