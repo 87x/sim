@@ -18,6 +18,8 @@ pi=m.pi
 rad=m.rad
 deg=m.deg
 
+abs=m.abs
+
 w,h=240,136 -- screen size
 hw,hh=w//2,h//2 -- half screen size
 
@@ -25,6 +27,7 @@ t=0
 x=96
 y=24
 
+-- quality of life functions for unit conversion
 function tr(n)
 	return tan(rad(n))
 end
@@ -94,7 +97,8 @@ end
 
 sun=Vec3(0,0,1)
 
-cam={x=0,y=-8,z=1.5,r=0,p=rad(0),h=rad(0)}
+-- initial locations
+cam={x=-20,y=15,z=1.5,r=0,p=rad(-5),h=rad(125)}
 jet={x=0,y=0,z=0,r=0,p=0,h=0}
 tris={{{x=0,y=10,z=1},{x=1,y=10,z=-1},{x=-1,y=10,z=-1},c=1}} -- final 3D triangles to draw
 stick={x=0,y=0}
@@ -159,7 +163,13 @@ vecY_G=Vec3(0,1,0) -- global forward vector
 vecZ_G=Vec3(0,0,1) -- global up vector
 
 positions={cam=cam,jet=jet} -- raw position data before conversion to frames. change here, result goes to frames
-frames={} -- rotation matrices for each individual model. the expensive to calculate "rotation frames", done from positions. do not change, result comes from positions
+frames={} -- rotation matrices for each individual model. the expensive to calculate "rotation frames", done from positions. do not change, result comes from positions. uses same keys as positions
+phys={} -- physics acting on each position. same keys as positions/frames
+shift={jet=Vec3(0,0,0),bomba0=Vec3(2.25,-0.2,-0.211073),bomba1=Vec3(-2.25,-0.2,-0.211073)} -- origin of various models. not used until they have their own position separate from default (jet)
+
+phys.jet={v=Vec3(0,0,0),a={g=Vec3(0,0,-9.81/60^2),debug_holdup=Vec3(0,0,9.81/60^2)}} -- try not to edit existing variables here. instead make new parts of acceleration table. not used until it has its own position
+
+phys_ts=2 -- physics tick skip
 
 q=jet -- current position source
 
@@ -199,6 +209,8 @@ function jumble(roll,rpitch,rhdg,dframe)
 end
 
 function TIC() -- game function run each tick
+	texts={}
+
 	stick.x,stick.y=stick.x*.95,stick.y*.95
 	if btn(2) then stick.x=stick.x-.5 end
 	if btn(3) then stick.x=stick.x+.5 end
@@ -206,29 +218,35 @@ function TIC() -- game function run each tick
 	if btn(1) then stick.y=stick.y-.5 end
 	if btn(4) then jet.r=jet.r+.005 end
 	if btn(5) then jet.r=jet.r-.005 end
-	stick.x,stick.y=clamp(stick.x,-10,10),clamp(stick.y,-10,10) -- stick is the flight stick. TBD:pedals,throttle, currently it's just used to walk camera around
+	stick.x,stick.y=clamp(stick.x,-10,10),clamp(stick.y,-10,10) -- stick is the flight stick. TBD: pedals,throttle. currently it's just used to walk camera around
 	
 	cam.h=cam.h+stick.x/600
 	cam.x=cam.x+sin(cam.h)*stick.y/60
 	cam.y=cam.y+cos(cam.h)*stick.y/60
-	
+
 	cls(0)
 	--print(string.format("%+02.2f %+02.2f",stick.x,stick.y),0,10)
 	t=t+1 -- tick since start
 	
 	tris={} -- triangles directly to drawing
 	
-	-- draw model
+	-- load models
 	model=models_parsed[1]
+	osh=Vec3() -- origin shift
 	for ii,vv in ipairs(model["f"]) do
-				local p1,p2,p3,n1,n2,n3=vv[1],vv[3],vv[5],vv[2],vv[4],vv[6]
-				local v1,v2,v3,vn1,vn2,vn3=model["v"][p1],model["v"][p2],model["v"][p3],model["vn"][n1],model["vn"][n2],model["vn"][n3]
+				local p1,p2,p3,n1,n2,n3=vv[1],vv[3],vv[5],vv[2],vv[4],vv[6] -- points and normals requested
+				local v1,v2,v3,vn1,vn2,vn3=model["v"][p1],model["v"][p2],model["v"][p3],model["vn"][n1],model["vn"][n2],model["vn"][n3] -- real points and normals
 				c2=(v1[4]*v1[5]*v1[6]~=1) and 8 or 0
 				if v1.o~=frame then
+					osh=Vec3()
 					q=positions[v1.o] or jet -- get position
+					if shift[vv.o] and positions[vv.o] then
+						osh=shift[vv.o]
+						table.insert(texts,{vv.o,0,#texts*7})
+					end
 					jumble(q.r,q.p,q.h,v1.o)
 				end
-				v1,v2,v3,vn1,vn2,vn3=nVec3(v1),nVec3(v2),nVec3(v3),nVec3(vn1),nVec3(vn2),nVec3(vn3)
+				v1,v2,v3,vn1,vn2,vn3=nVec3(v1):sub(osh),nVec3(v2):sub(osh),nVec3(v3):sub(osh),nVec3(vn1),nVec3(vn2),nVec3(vn3)
 				m1,m2,m3=ml2({v1,v2,v3},0)
 				m4,m5,m6=ml2({vn1,vn2,vn3},0)
 				v1,v2,v3,vn1,vn2,vn3=Vec3(q.x+m1[1][1],q.y+m1[1][2],q.z+m1[1][3]),Vec3(q.x+m2[1][1],q.y+m2[1][2],q.z+m2[1][3]),Vec3(q.x+m3[1][1],q.y+m3[1][2],q.z+m3[1][3]),Vec3(m4[1][1],m4[1][2],m4[1][3]),Vec3(m5[1][1],m5[1][2],m5[1][3]),Vec3(m6[1][1],m6[1][2],m6[1][3])
@@ -239,7 +257,20 @@ function TIC() -- game function run each tick
 						table.insert(tris,{v1,v2,v3,c=c,frame=frame})
 				end
 	end
-	
+
+	-- physics. TBD: angular velocity and rotational forces
+	for i,v in pairs(phys) do
+		local q=positions[i]
+		if not positions[i] then
+			goto nophys
+		end
+		for ii,vv in pairs(v.a) do
+			v.v=v.v:add(vv)
+		end
+		q.x,q.y,q.z=q.x+v.v.x,q.y+v.v.y,q.z+v.v.z
+		::nophys::
+	end
+
 	jumble(cam.r,cam.p,cam.h,"camera")
 	
 	--print(#tris..", "..(done and "done" or "not done"),0,60)
@@ -250,7 +281,6 @@ function TIC() -- game function run each tick
 			d2=vecZ:dot({x=x2,y=y2,z=z2})
 			return d1>d2
 	end)]]
-	texts={}
 	for i,v in ipairs(tris) do
 				local m1,m2,m3=ml2(v)
 				
@@ -264,7 +294,7 @@ function TIC() -- game function run each tick
 				local cx3,cy3=m3[1][1]/m3[1][2],m3[1][3]/m3[1][2]
 				
 				-- cull outside view
-				if m.abs(cx1)>FOV*2 and m.abs(cx2)>FOV*2 and m.abs(cx3)>FOV*2 then
+				if abs(cx1)>w*2 and abs(cx2)>FOV*2 and abs(cx3)>FOV*2 then
 							goto skip
 				end
 				
@@ -285,7 +315,10 @@ function TIC() -- game function run each tick
 				m2[1][2],
 				m3[1][2]
 				)
-				--table.insert(texts,{v.frame,dx1,dy1})
+				--pix(dx1,dy1,v.c)
+				--if true and v.frame~="fusolage" then
+				--	table.insert(texts,{v.frame,dx1,dy1})
+				--end
 				--print(string.format("%+01.3f,%+01.3f",cx1,cy1),0,20)
 				::skip::
 	end
